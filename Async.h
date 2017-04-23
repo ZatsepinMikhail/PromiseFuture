@@ -11,31 +11,6 @@
 #include <thread>
 #include <vector>
 
-int foo( bool b, int nIterations )
-{
-    if( !b ){
-        return 0;
-    }
-    int sum = 0;
-    for( int i = 0; i < nIterations; ++i ){
-        sum++;
-    }
-    return sum;
-}
-
-int fooN()
-{
-    int sum = 0;
-    for( int i = 0; i < 1000000000; ++i ){
-        sum++;
-    }
-    return sum;
-}
-
-class TaskPool {
-
-};
-
 template <typename R>
 class MyTask
 {
@@ -53,34 +28,53 @@ public:
         }
     }
 
-    MyFuture<R> get_future() { return promiseForResult.GetFuture(); }
+    std::shared_ptr<MyFuture<R>> GetFuture() { return promiseForResult.GetFuture(); }
 };
 
 class MyAsyncExecutor {
 public:
     MyAsyncExecutor( unsigned int threadNumber )
-            : workerNumber( std::max( 1U, std::min( threadNumber, std::thread::hardware_concurrency() ) ) ) {}
+            : workerNumber( std::max( 1U, std::min( threadNumber, std::thread::hardware_concurrency() - 1 ) ) ),
+              lastLaunchedWorkerIndex( -1 ) {}
 
-    template<typename R> MyFuture<R> Execute(std::function<R()> functionToExecute)
+    ~MyAsyncExecutor()
+    {
+        for( int i = 0; i < workers.size(); i++ ) {
+            if( workers[i].joinable() ) {
+                workers[i].join();
+            }
+        }
+    }
+
+    template<typename R>
+    std::shared_ptr<MyFuture<R>> Execute(std::function<R()> functionToExecute, bool launchAsynchronously = true )
     {
         MyTask<R> newTask( functionToExecute );
-        MyFuture<R> taskFuture = newTask.get_future();
+        std::shared_ptr<MyFuture<R>> taskFuture = newTask.GetFuture();
 
-        // инициализация
-        if( workers.size() < workerNumber ) {
-            // асинхронно
-            std::cout << "async new\n";
-            workers.emplace_back( std::move( newTask ) );
-            return taskFuture;
-        }
-
-        // асинхронно
-        for( auto it = workers.begin(); it != workers.end(); it++ ) {
-            if( it->joinable() ) {
-                it->join();
-                workers.emplace( it, std::move( newTask ) );
-                std::cout << "async\n";
+        if( launchAsynchronously ) {
+            // инициализация
+            if (workers.size() < workerNumber) {
+                // асинхронно
+                std::cout << "async new\n";
+                workers.emplace_back(std::move(newTask));
+                futures.emplace_back(taskFuture);
+                lastLaunchedWorkerIndex = workers.size() - 1;
                 return taskFuture;
+            }
+
+            // асинхронно
+            for (int i = 0; i < futures.size(); i++) {
+                int currentIndex = (lastLaunchedWorkerIndex + i + 1) % futures.size();
+                if (workers[currentIndex].joinable() &&
+                        futures[currentIndex]->IsReady()) {
+                    workers[currentIndex].join();
+                    workers.emplace(workers.begin() + currentIndex, std::move(newTask));
+                    futures[currentIndex] = taskFuture;
+                    lastLaunchedWorkerIndex = currentIndex;
+                    std::cout << "async (" << currentIndex << ")\n";
+                    return taskFuture;
+                }
             }
         }
 
@@ -91,5 +85,7 @@ public:
     }
 private:
     const int workerNumber;
+    int lastLaunchedWorkerIndex;
+    std::vector<std::shared_ptr<IReadyCheckable>> futures;
     std::vector<std::thread> workers;
 };

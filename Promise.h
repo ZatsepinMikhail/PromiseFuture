@@ -12,7 +12,7 @@ public:
 
     MyPromise();
 
-    MyFuture<T> GetFuture();
+    std::shared_ptr<MyFuture<T>> GetFuture();
     void SetValue( const T& newValue );
     void SetException( const std::exception& newException );
 
@@ -35,11 +35,11 @@ MyPromise<T>::MyPromise()
 }
 
 template<typename T>
-MyFuture<T> MyPromise<T>::GetFuture()
+std::shared_ptr<MyFuture<T>> MyPromise<T>::GetFuture()
 {
     if( !isFutureRetrieved ) {
         isFutureRetrieved = true;
-        return MyFuture<T>( sharedState, isReadyCV, criticalSectionLock );
+        return std::shared_ptr<MyFuture<T>>( new MyFuture<T>( sharedState, isReadyCV, criticalSectionLock ) );
     } else {
         throw std::future_errc( std::future_errc::future_already_retrieved );
     }

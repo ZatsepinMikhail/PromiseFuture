@@ -9,13 +9,20 @@
 
 template<typename T> class MyPromise;
 
+class IReadyCheckable {
+public:
+    virtual bool IsReady() = 0;
+};
+
 template<typename T>
-class MyFuture {
+class MyFuture : public IReadyCheckable {
 public:
     friend class MyPromise<T>;
 
     T GetValue();
     bool TryGetValue( T& newValue );
+
+    bool IsReady();
 
 private:
     struct SharedState {
@@ -48,7 +55,12 @@ T MyFuture<T>::GetValue()
     }
     isValid = false;
     checkException();
-    return sharedState->storedValue;
+
+    T value = sharedState->storedValue;
+
+    // удаление sharedState
+    sharedState.reset();
+    return value;
 }
 
 template<typename T>
@@ -64,6 +76,14 @@ bool MyFuture<T>::TryGetValue( T& newValue )
     } else {
         return false;
     }
+}
+
+template<typename T>
+bool MyFuture<T>::IsReady()
+{
+    checkValidity();
+    std::unique_lock<std::mutex> lock( *criticalSectionLock );
+    return sharedState->isReady;
 }
 
 template<typename T>
