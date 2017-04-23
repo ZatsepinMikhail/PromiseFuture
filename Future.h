@@ -5,7 +5,7 @@
 #pragma once
 
 #include <condition_variable>
-#include <future>
+#include<future>
 
 template<typename T> class MyPromise;
 
